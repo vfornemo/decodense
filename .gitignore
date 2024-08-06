@@ -10,3 +10,8 @@ ms.log
 ms.pdf
 notes_mf_decomp.txt
 articles/
+*.txt
+tests/csvs/*
+tests/logs/*
+*.csv
+*.log

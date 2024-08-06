@@ -10,33 +10,31 @@ __maintainer__ = 'Janus Juul Eriksen'
 __email__ = 'janus@kemi.dtu.dk'
 __status__ = 'Development'
 
-import numpy as np
 from pyscfad.lib import numpy as jnp
 from itertools import starmap
-from pyscfad import gto, scf, dft, df, lo, lib
+from pyscfad import gto, scf, df, lo, lib, dft
+from pyscf.dft import libxc
 from pyscf import solvent
 from pyscf.dft import numint
 from pyscf import tools as pyscf_tools
 from typing import List, Tuple, Dict, Union, Any
 
-from .tools import dim, make_rdm1, orbsym, contract
-from .decomp import CompKeys
+from ..tools import dim, make_rdm1, orbsym, contract
+from ..decomp import CompKeys
 
 # block size in _mm_pot()
 BLKSIZE = 200
 
 
-def prop_tot(mol: gto.Mole, mf: Union[scf.hf.SCF, dft.rks.KohnShamDFT], \
+def prop_tot_ad(mol: gto.Mole, mf: Union[scf.hf.SCF, dft.rks.KohnShamDFT], \
              mo_coeff: Tuple[jnp.ndarray, jnp.ndarray], mo_occ: Tuple[jnp.ndarray, jnp.ndarray], \
              rdm1_eff: jnp.ndarray, pop_method: str, prop_type: str, part: str, ndo: bool, \
-             gauge_origin: jnp.ndarray, weights: List[jnp.ndarray]) -> Dict[str, Union[jnp.ndarray, List[jnp.ndarray]]]:
+             gauge_origin: jnp.ndarray, weights: jnp.ndarray) -> Dict[str, Union[jnp.ndarray, List[jnp.ndarray]]]:
         """
         this function returns atom-decomposed mean-field properties
         """
         # declare nested kernel functions in global scope
-        global prop_atom
-        global prop_eda
-        global prop_orb
+        global prop_atom_ad
 
         # dft logical
         dft_calc = isinstance(mf, dft.rks.KohnShamDFT)
@@ -64,6 +62,7 @@ def prop_tot(mol: gto.Mole, mf: Union[scf.hf.SCF, dft.rks.KohnShamDFT], \
         # effective atomic charges
         if part in ['atoms', 'eda']:
             charge_atom = -jnp.sum(weights[0] + weights[1], axis=0) + pmol.atom_charges()
+            # print("charge_atom", charge_atom)
         else:
             charge_atom = 0.
 
@@ -83,7 +82,7 @@ def prop_tot(mol: gto.Mole, mf: Union[scf.hf.SCF, dft.rks.KohnShamDFT], \
             prop_nuc_rep = _dip_nuc(pmol, charge_atom, gauge_origin)
 
         # core hamiltonian
-        kin, nuc, sub_nuc, mm_pot = _h_core(mol, mm_mol)
+        kin, nuc, sub_nuc, mm_pot, ext = _h_core(mf, mol, mm_mol)
         # fock potential
         vj, vk = mf.get_jk(mol=mol, dm=rdm1_eff)
 
@@ -129,7 +128,7 @@ def prop_tot(mol: gto.Mole, mf: Union[scf.hf.SCF, dft.rks.KohnShamDFT], \
         if part == 'eda':
             ao_labels = mol.ao_labels(fmt=None)
 
-        def prop_atom(atom_idx: int) -> Dict[str, Any]:
+        def prop_atom_ad(atom_idx: int) -> Dict[str, Any]:
                 """
                 this function returns atom-wise energy/dipole contributions
                 """
@@ -149,7 +148,9 @@ def prop_tot(mol: gto.Mole, mf: Union[scf.hf.SCF, dft.rks.KohnShamDFT], \
                         # orbital-specific rdm1
                         rdm1_orb = make_rdm1(orb, mo_occ[i][j])
                         # weighted contribution to rdm1_atom
-                        rdm1_atom[i] += rdm1_orb * weights[i][m][atom_idx] / jnp.sum(weights[i][m])
+                        # rdm1_atom[i] += rdm1_orb * weights[i][m][atom_idx] / jnp.sum(weights[i][m])
+                        rdm1_atom = rdm1_atom.at[i].add(rdm1_orb * weights[i][m][atom_idx])
+                        # rdm1_atom = rdm1_atom.at[i].add(rdm1_orb * weights[i][m][atom_idx] / jnp.sum(weights[i][m]))
                     # coulumb & exchange energy associated with given atom
                     if prop_type == 'energy':
                         res[CompKeys.coul] += _trace(jnp.sum(vj, axis=0), rdm1_atom[i], scaling = .5)
@@ -173,87 +174,9 @@ def prop_tot(mol: gto.Mole, mf: Union[scf.hf.SCF, dft.rks.KohnShamDFT], \
                         if eps_xc_nlc is not None:
                             _, _, rho_atom_vv10 = _make_rho(ao_value_nlc, jnp.sum(rdm1_atom, axis=0), 'GGA')
                             res[CompKeys.xc] += _e_xc(eps_xc_nlc, grid_weights_nlc, rho_atom_vv10)
+                    res[CompKeys.ext] =  _trace(ext,jnp.sum(rdm1_atom, axis=0))
                 elif prop_type == 'dipole':
                     res[CompKeys.el] = -_trace(ao_dip, jnp.sum(rdm1_atom, axis=0))
-                # sum up electronic contributions
-                if prop_type == 'energy':
-                    res[CompKeys.el] = sum(res.values())
-                return res
-
-        def prop_eda(atom_idx: int) -> Dict[str, Any]:
-                """
-                this function returns EDA energy/dipole contributions
-                """
-                # init results
-                res = {}
-                # get AOs on atom k
-                select = jnp.where([atom[0] == atom_idx for atom in ao_labels])[0]
-                # common energy contributions associated with given atom
-                if prop_type == 'energy':
-                    res[CompKeys.coul] = 0.
-                    res[CompKeys.exch] = 0.
-                    # loop over spins
-                    for i, _ in enumerate((alpha, beta)):
-                        res[CompKeys.coul] += _trace(jnp.sum(vj, axis=0)[select], rdm1_tot[i][select], scaling = .5)
-                        res[CompKeys.exch] -= _trace(vk[i][select], rdm1_tot[i][select], scaling = .5)
-                    res[CompKeys.kin] = _trace(kin[select], jnp.sum(rdm1_tot, axis=0)[select])
-                    res[CompKeys.nuc_att_glob] = _trace(sub_nuc[atom_idx], jnp.sum(rdm1_tot, axis=0), scaling = .5)
-                    res[CompKeys.nuc_att_loc] = _trace(nuc[select], jnp.sum(rdm1_tot, axis=0)[select], scaling = .5)
-                    if mm_pot is not None:
-                        res[CompKeys.solvent] = _trace(mm_pot[select], jnp.sum(rdm1_tot, axis=0)[select])
-                    if e_solvent is not None:
-                        res[CompKeys.solvent] = e_solvent[atom_idx]
-                    # additional xc energy contribution
-                    if dft_calc:
-                        # atom-specific rho
-                        rho_atom = _make_rho_interm2(c0_tot[:, select], \
-                                                     c1_tot if c1_tot is None else c1_tot[:, :, select], \
-                                                     ao_value[:, :, select], xc_type)
-                        # energy from individual atoms
-                        res[CompKeys.xc] = _e_xc(eps_xc, grid_weights, rho_atom)
-                        # nlc (vv10)
-                        if eps_xc_nlc is not None:
-                            rho_atom_vv10 = _make_rho_interm2(c0_vv10[:, select], \
-                                                              c1_vv10 if c1_vv10 is None else c1_vv10[:, :, select], \
-                                                              ao_value_nlc[:, :, select], 'GGA')
-                            res[CompKeys.xc] += _e_xc(eps_xc_nlc, grid_weights_nlc, rho_atom_vv10)
-                elif prop_type == 'dipole':
-                    res[CompKeys.el] = -_trace(ao_dip[:, select], jnp.sum(rdm1_tot, axis=0)[select])
-                # sum up electronic contributions
-                if prop_type == 'energy':
-                    res[CompKeys.el] = sum(res.values())
-                return res
-
-        def prop_orb(spin_idx: int, orb_idx: int) -> Dict[str, Any]:
-                """
-                this function returns bond-wise energy/dipole contributions
-                """
-                # init res
-                res = {}
-                # get orbital(s)
-                orb = mo_coeff[spin_idx][:, orb_idx].reshape(mo_coeff[spin_idx].shape[0], -1)
-                # orbital-specific rdm1
-                rdm1_orb = make_rdm1(orb, mo_occ[spin_idx][orb_idx])
-                # total energy or dipole moment associated with given spin-orbital
-                if prop_type == 'energy':
-                    res[CompKeys.coul] = _trace(jnp.sum(vj, axis=0), rdm1_orb, scaling = .5)
-                    res[CompKeys.exch] = -_trace(vk[spin_idx], rdm1_orb, scaling = .5)
-                    res[CompKeys.kin] = _trace(kin, rdm1_orb)
-                    res[CompKeys.nuc_att] = _trace(nuc, rdm1_orb)
-                    if mm_pot is not None:
-                        res[CompKeys.solvent] = _trace(mm_pot, rdm1_orb)
-                    # additional xc energy contribution
-                    if dft_calc:
-                        # orbital-specific rho
-                        _, _, rho_orb = _make_rho(ao_value, rdm1_orb, xc_type)
-                        # xc energy from individual orbitals
-                        res[CompKeys.xc] = _e_xc(eps_xc, grid_weights, rho_orb)
-                        # nlc (vv10)
-                        if eps_xc_nlc is not None:
-                            _, _, rho_orb_vv10 = _make_rho(ao_value_nlc, rdm1_orb, 'GGA')
-                            res[CompKeys.xc] += _e_xc(eps_xc_nlc, grid_weights_nlc, rho_orb_vv10)
-                elif prop_type == 'dipole':
-                    res[CompKeys.el] = -_trace(ao_dip, rdm1_orb)
                 # sum up electronic contributions
                 if prop_type == 'energy':
                     res[CompKeys.el] = sum(res.values())
@@ -264,16 +187,18 @@ def prop_tot(mol: gto.Mole, mf: Union[scf.hf.SCF, dft.rks.KohnShamDFT], \
             # domain
             domain = jnp.arange(pmol.natm)
             # execute kernel
-            res = list(map(prop_atom if part == 'atoms' else prop_eda, domain)) # type: ignore
+            res = list(map(prop_atom_ad if part == 'atoms' else prop_eda, domain)) # type: ignore
             # init atom-specific energy or dipole arrays
             if prop_type == 'energy':
                 prop = {comp_key: jnp.zeros(pmol.natm, dtype=jnp.float64) for comp_key in res[0].keys()}
+                prop[CompKeys.nuc_dip] = _dip_nuc(pmol, charge_atom, gauge_origin)
             elif prop_type == 'dipole':
                 prop = {comp_key: jnp.zeros([pmol.natm, 3], dtype=jnp.float64) for comp_key in res[0].keys()}
             # collect results
             for k, r in enumerate(res):
                 for key, val in r.items():
-                    prop[key][k] = val
+                    # prop[key][k] = val
+                    prop[key] = prop[key].at[k].set(val)
             if ndo:
                 prop[CompKeys.struct] = jnp.zeros_like(prop_nuc_rep)
             else:
@@ -293,7 +218,10 @@ def prop_tot(mol: gto.Mole, mf: Union[scf.hf.SCF, dft.rks.KohnShamDFT], \
             # collect results
             for k, r in enumerate(res):
                 for key, val in r.items():
-                    prop[key][domain[k, 0]][domain[k, 1]] = val
+                    # prop[key][domain[k, 0]][domain[k, 1]] = val
+                    prop[key][domain[k, 0]].at[domain[k, 1]].set(val)
+                    # prop[key] = prop[key].at[k].set(val)
+                    
             if ndo:
                 prop[CompKeys.struct] = jnp.zeros_like(prop_nuc_rep)
             else:
@@ -309,8 +237,9 @@ def _e_nuc(mol: gto.Mole, mm_mol: Union[None, gto.Mole]) -> jnp.ndarray:
         coords = mol.atom_coords()
         charges = mol.atom_charges()
         # internuclear distances (with self-repulsion removed)
-        dist = gto.inter_distance(mol)
-        dist[jnp.diag_indices_from(dist)] = 1e200
+        dist = gto.mole.distance_matrix(coords)
+        # dist = gto.inter_distance(mol)
+        # dist[jnp.diag_indices_from(dist)] = 1e200
         e_nuc = contract('i,ij,j->i', charges, 1. / dist, charges) * .5
         # possible interaction with mm sites
         if mm_mol is not None:
@@ -331,11 +260,18 @@ def _dip_nuc(mol: gto.Mole, atom_charges: jnp.ndarray, gauge_origin: jnp.ndarray
         coords = mol.atom_coords()
         form_charges = mol.atom_charges()
         act_charges = form_charges - atom_charges
+        # print('act_charges', act_charges)
+        # print('gauge_origin', gauge_origin)
+        # print('form_charges', form_charges)
+        # print('coords', coords)
+        # print('contract form_charges, coords', contract('i,ix->ix', form_charges, coords))
+        # print('contract act_charges, gauge_origin', contract('i,x->ix', act_charges, gauge_origin))
+        
         return contract('i,ix->ix', form_charges, coords) - contract('i,x->ix', act_charges, gauge_origin)
 
 
-def _h_core(mol: gto.Mole, mm_mol: Union[None, gto.Mole]) -> Tuple[jnp.ndarray, jnp.ndarray, \
-                                                                   jnp.ndarray, Union[None, jnp.ndarray]]:
+def _h_core(mf: Union[scf.hf.SCF, dft.rks.KohnShamDFT], mol: gto.Mole, mm_mol: Union[None, gto.Mole]) -> Tuple[jnp.ndarray, jnp.ndarray, \
+                                                                   jnp.ndarray, Union[None, jnp.ndarray], Union[None, jnp.ndarray]]:
         """
         this function returns the components of the core hamiltonian
         """
@@ -347,8 +283,10 @@ def _h_core(mol: gto.Mole, mm_mol: Union[None, gto.Mole]) -> Tuple[jnp.ndarray, 
         # individual atomic potentials
         sub_nuc = jnp.zeros([mol.natm, mol.nao_nr(), mol.nao_nr()], dtype=jnp.float64)
         for k in range(mol.natm):
-            with mol.with_rinv_origin(coords[k]):
-                sub_nuc[k] = -mol.intor('int1e_rinv') * charges[k]
+            with mol.with_rinv_at_nucleus(k):
+                sub_nuc = sub_nuc.at[k].set(-mol.intor('int1e_rinv') * charges[k])
+            # with mol.with_rinv_origin(coords[k]):
+            #     sub_nuc[k] = -mol.intor('int1e_rinv') * charges[k]
         # total nuclear potential
         nuc = jnp.sum(sub_nuc, axis=0)
         # possible mm potential
@@ -356,7 +294,13 @@ def _h_core(mol: gto.Mole, mm_mol: Union[None, gto.Mole]) -> Tuple[jnp.ndarray, 
             mm_pot = _mm_pot(mol, mm_mol)
         else:
             mm_pot = None
-        return kin, nuc, sub_nuc, mm_pot
+        
+        # total nuclear potential
+        nuc =jnp.sum(sub_nuc, axis=0)
+        # Check additional terms in hcore
+        ext = mf.get_hcore() - kin - nuc
+            
+        return kin, nuc, sub_nuc, mm_pot, ext
 
 
 def _mm_pot(mol: gto.Mole, mm_mol: gto.Mole) -> jnp.ndarray:
@@ -410,7 +354,7 @@ def _xc_ao_deriv(xc_func: str) -> Tuple[str, int]:
         """
         this function returns the type of xc functional and the level of ao derivatives needed
         """
-        xc_type = dft.libxc.xc_type(xc_func)
+        xc_type = libxc.xc_type(xc_func)
         if xc_type == 'LDA':
             ao_deriv = 0
         elif xc_type in ['GGA', 'NLC']:

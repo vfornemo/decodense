@@ -14,14 +14,17 @@ import sys
 import os
 import copy
 import numpy as np
+from pyscfad.lib import numpy as jnp
+
 try:
     import opt_einsum as oe
     OE_AVAILABLE = True
 except ImportError:
     OE_AVAILABLE = False
 from subprocess import Popen, PIPE
-from pyscf import gto, scf, dft, symm, lib
-from pyscf import tools as pyscf_tools
+from pyscfad import gto, scf, dft, lib
+from pyscf import symm
+from pyscfad import tools as pyscf_tools
 from typing import Tuple, List, Dict, Union
 
 MAX_CYCLE = 100
@@ -81,27 +84,29 @@ def git_version() -> str:
         return GIT_REVISION
 
 
-def dim(mo_occ: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+def dim(mo_occ: jnp.ndarray) -> Tuple[jnp.ndarray, jnp.ndarray]:
         """
         determine molecular dimensions
         """
-        if isinstance(mo_occ, np.ndarray) and mo_occ.ndim == 1:
-            return np.where(np.abs(mo_occ) > 0.)[0], np.where(np.abs(mo_occ) > 1.)[0]
+        if isinstance(mo_occ, jnp.ndarray) and mo_occ.ndim == 1:
+            return jnp.where(jnp.abs(mo_occ) > 0.)[0], jnp.where(jnp.abs(mo_occ) > 1.)[0]
         else:
-            return np.where(np.abs(mo_occ[0]) > 0.)[0], np.where(np.abs(mo_occ[1]) > 0.)[0]
+            return jnp.where(jnp.abs(mo_occ[0]) > 0.)[0], jnp.where(jnp.abs(mo_occ[1]) > 0.)[0]
 
 
-def mf_info(mf: Union[scf.hf.SCF, dft.rks.KohnShamDFT]) -> Tuple[Tuple[np.ndarray, np.ndarray], \
-                                                                 Tuple[np.ndarray, np.ndarray]]:
+def mf_info(mf: Union[scf.hf.SCF, dft.rks.KohnShamDFT]) -> Tuple[Tuple[jnp.ndarray, jnp.ndarray], \
+                                                                 Tuple[jnp.ndarray, jnp.ndarray]]:
         """
         retrieve mf information (mo coefficients & occupations)
         """
+        # print("mf.mo_coeff", mf.mo_coeff)
+        
         # dimensions
         alpha, beta = dim(mf.mo_occ)
         # mo occupations
-        mo_occ = (np.ones_like(alpha), np.ones_like(beta))
+        mo_occ = (jnp.ones_like(alpha), jnp.ones_like(beta))
         # mo coefficients
-        if np.asarray(mf.mo_coeff).ndim == 2:
+        if jnp.asarray(mf.mo_coeff).ndim == 2:
             mo_coeff = (mf.mo_coeff[:, alpha], mf.mo_coeff[:, beta])
         else:
             mo_coeff = (mf.mo_coeff[0][:, alpha], mf.mo_coeff[1][:, beta])
@@ -113,47 +118,47 @@ def orbsym(mol, mo_coeff):
         """
         this functions returns orbital symmetries
         """
-        if isinstance(mo_coeff, np.ndarray):
+        if isinstance(mo_coeff, jnp.ndarray):
             if mo_coeff.ndim == 2:
                 try:
-                    orbsymm = np.array(symm.label_orb_symm(mol, mol.irrep_name, mol.symm_orb, mo_coeff), dtype=object)
+                    orbsymm = jnp.array(symm.label_orb_symm(mol, mol.irrep_name, mol.symm_orb, mo_coeff), dtype=object)
                 except:
-                    orbsymm = np.array(['A'] * mo_coeff.shape[1], dtype=object)
+                    orbsymm = jnp.array(['A'] * mo_coeff.shape[1], dtype=object)
             else:
                 try:
-                    orbsymm = np.array([symm.label_orb_symm(mol, mol.irrep_name, mol.symm_orb, c) for c in mo_coeff], dtype=object)
+                    orbsymm = jnp.array([symm.label_orb_symm(mol, mol.irrep_name, mol.symm_orb, c) for c in mo_coeff], dtype=object)
                 except:
-                    orbsymm = np.array([['A'] * c.shape[1] for c in mo_coeff], dtype=object)
+                    orbsymm = jnp.array([['A'] * c.shape[1] for c in mo_coeff], dtype=object)
         else:
             try:
-                orbsymm = np.array([symm.label_orb_symm(mol, mol.irrep_name, mol.symm_orb, c) for c in mo_coeff], dtype=object)
+                orbsymm = jnp.array([symm.label_orb_symm(mol, mol.irrep_name, mol.symm_orb, c) for c in mo_coeff], dtype=object)
             except:
-                orbsymm = np.array([['A'] * c.shape[1] for c in mo_coeff], dtype=object)
+                orbsymm = jnp.array([['A'] * c.shape[1] for c in mo_coeff], dtype=object)
 
         return orbsymm
 
 
-def make_rdm1(mo: np.ndarray, occup: np.ndarray) -> np.ndarray:
+def make_rdm1(mo: jnp.ndarray, occup: jnp.ndarray) -> jnp.ndarray:
         """
         this function returns an 1-RDM (in ao basis) corresponding to given mo(s)
         """
         return contract('ip,jp->ij', occup * mo, mo)
 
 
-def make_natorb(mol: gto.Mole, mo_coeff: np.ndarray, \
-                rdm1: np.ndarray, thres: float = NATORB_THRES) -> Tuple[Tuple[np.ndarray, np.ndarray], \
-                                                                        Tuple[np.ndarray, np.ndarray]]:
+def make_natorb(mol: gto.Mole, mo_coeff: jnp.ndarray, \
+                rdm1: jnp.ndarray, thres: float = NATORB_THRES) -> Tuple[Tuple[jnp.ndarray, jnp.ndarray], \
+                                                                        Tuple[jnp.ndarray, jnp.ndarray]]:
         """
         this function returns no coefficients and occupations corresponding
         to given mo coefficients and rdm1
         """
         # reshape mo_coeff and rdm1
         if mo_coeff.ndim == 2:
-            c = np.asarray((mo_coeff,) * 2)
+            c = jnp.asarray((mo_coeff,) * 2)
         else:
             c = mo_coeff
         if rdm1.ndim == 2:
-            d = np.array([rdm1, rdm1]) * .5
+            d = jnp.array([rdm1, rdm1]) * .5
         else:
             d = rdm1
         # overlap matrix
@@ -161,17 +166,17 @@ def make_natorb(mol: gto.Mole, mo_coeff: np.ndarray, \
         # ao to mo transformation of dm
         rdm1_mo = contract('xpi,pq,xqr,rs,xsj->xij', c, s, d, s, c)
         # diagonalize rdm1_mo
-        occ_no, u = np.linalg.eigh(rdm1_mo)
+        occ_no, u = jnp.linalg.eigh(rdm1_mo)
         # transform to no basis
         mo_no = contract('xip,xpj->xij', c, u)
         # retain only significant nos
-        return (mo_no[0][:, np.where(np.abs(occ_no[0]) >= thres)[0]], mo_no[1][:, np.where(np.abs(occ_no[1]) >= thres)[0]]), \
-               (occ_no[0][np.where(np.abs(occ_no[0]) >= thres)], occ_no[1][np.where(np.abs(occ_no[1]) >= thres)])
+        return (mo_no[0][:, jnp.where(jnp.abs(occ_no[0]) >= thres)[0]], mo_no[1][:, jnp.where(jnp.abs(occ_no[1]) >= thres)[0]]), \
+               (occ_no[0][jnp.where(jnp.abs(occ_no[0]) >= thres)], occ_no[1][jnp.where(jnp.abs(occ_no[1]) >= thres)])
 
 
 def write_rdm1(mol: gto.Mole, part: str, \
-               mo_coeff: np.ndarray, mo_occ: np.ndarray, fmt: str, \
-               weights: List[np.ndarray], \
+               mo_coeff: jnp.ndarray, mo_occ: jnp.ndarray, fmt: str, \
+               weights: List[jnp.ndarray], \
                suffix: str = '') -> None:
         """
         this function writes a 1-RDM as a numpy or cube (default) file
@@ -182,11 +187,11 @@ def write_rdm1(mol: gto.Mole, part: str, \
         # molecular dimensions
         alpha, beta = dim(mo_occ)
         # compute total 1-RDM (AO basis)
-        rdm1_tot = np.array([make_rdm1(mo_coeff[0], mo_occ[0]), make_rdm1(mo_coeff[1], mo_occ[1])])
+        rdm1_tot = jnp.array([make_rdm1(mo_coeff[0], mo_occ[0]), make_rdm1(mo_coeff[1], mo_occ[1])])
         # loop over atoms
         for a in range(mol.natm):
             # atom-specific rdm1
-            rdm1_atom = np.zeros_like(rdm1_tot)
+            rdm1_atom = jnp.zeros_like(rdm1_tot)
             # loop over spins
             for i, spin_mo in enumerate((alpha, beta)):
                 # loop over spin-orbitals
@@ -200,10 +205,10 @@ def write_rdm1(mol: gto.Mole, part: str, \
             if fmt == 'cube':
                 # write rdm1_atom as cube file
                 pyscf_tools.cubegen.density(mol, f'atom_{mol.atom_symbol(a).upper():s}{a:d}_rdm1{suffix:}.cube', \
-                                            np.sum(rdm1_atom, axis=0))
+                                            jnp.sum(rdm1_atom, axis=0))
             else:
                 # write rdm1_atom as numpy file
-                np.save(f'atom_{mol.atom_symbol(a).upper():s}{a:d}_rdm1{suffix:}.npy', np.sum(rdm1_atom, axis=0))
+                jnp.save(f'atom_{mol.atom_symbol(a).upper():s}{a:d}_rdm1{suffix:}.npy', jnp.sum(rdm1_atom, axis=0))
 
 
 def res_add(res_a, res_b):
@@ -224,9 +229,6 @@ def contract(eqn, *tensors):
         """
         interface to optimized einsum operation
         """
-        if OE_AVAILABLE:
-            return oe.contract(eqn, *tensors)
-        else:
-            return np.einsum(eqn, *tensors, optimize=True)
+        return jnp.einsum(eqn, *tensors, optimize=True)
 
 

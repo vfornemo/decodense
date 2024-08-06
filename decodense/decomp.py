@@ -10,8 +10,8 @@ __maintainer__ = 'Janus Juul Eriksen'
 __email__ = 'janus@kemi.dtu.dk'
 __status__ = 'Development'
 
-import numpy as np
-from pyscf import gto
+from pyscfad.lib import numpy as jnp
+from pyscfad import gto
 from typing import List, Dict, Union, Any
 
 
@@ -20,10 +20,12 @@ class CompKeys:
         coul = 'Coul.'
         exch = 'Exch.'
         kin = 'Kin.'
+        ext = 'Ext.'
         solvent = 'Solv.'
         nuc_att_glob = 'E_ne (1)'
         nuc_att_loc = 'E_ne (2)'
         nuc_att = 'E_ne'
+        nuc_dip = 'Nucl. dip.'
         xc = 'XC'
         struct = 'Struct.'
         el = 'Elect.'
@@ -46,7 +48,7 @@ class DecompCls(object):
         def __init__(self, mo_basis: str = 'can', pop_method: str = 'mulliken', \
                      mo_init: str = 'can', loc_exp: int = 2, \
                      part = 'atoms', ndo: bool = False, \
-                     gauge_origin: Union[List[Any], np.ndarray] = np.zeros(3), \
+                     gauge_origin: Union[List[Any], jnp.ndarray] = jnp.zeros(3), \
                      prop: str = 'energy', write: str = '', verbose: int = 0, unit: str = 'au') -> None:
                 """
                 init molecule attributes
@@ -64,11 +66,11 @@ class DecompCls(object):
                 self.verbose = verbose
                 self.unit = unit
                 # set internal defaults
-                self.res: Dict[str, np.ndarray] = {}
-                self.charge_atom: np.ndarray = None
-                self.dist: np.ndarray = None
-                self.weights: np.ndarray = None
-                self.centres: np.ndarray = None
+                self.res: Dict[str, jnp.ndarray] = {}
+                self.charge_atom: jnp.ndarray = None
+                self.dist: jnp.ndarray = None
+                self.weights: jnp.ndarray = None
+                self.centres: jnp.ndarray = None
 
 
 def sanity_check(mol: gto.Mole, decomp: DecompCls) -> None:
@@ -94,16 +96,16 @@ def sanity_check(mol: gto.Mole, decomp: DecompCls) -> None:
         assert isinstance(decomp.ndo, bool), \
             'invalid NDO argument. must be a bool'
         # gauge origin
-        assert isinstance(decomp.gauge_origin, (list, np.ndarray)), \
-            'invalid gauge origin. must be a list or numpy array of ints/floats'
+        assert isinstance(decomp.gauge_origin, (list, jnp.ndarray)), \
+            'invalid gauge origin. must be a list or jnp array of ints/floats'
         # property
         assert decomp.prop in ['energy', 'dipole'], \
             'invalid property. valid choices: `energy` (default) and `dipole`'
         # write
         assert isinstance(decomp.write, str), \
             'invalid write format argument. must be a str'
-        assert decomp.write in ['', 'cube', 'numpy'], \
-            'invalid write format. valid choices: `cube` and `numpy`'
+        assert decomp.write in ['', 'cube', 'jnp'], \
+            'invalid write format. valid choices: `cube` and `jnp`'
         # verbosity
         assert isinstance(decomp.verbose, int), \
             'invalid verbosity. valid choices: 0 <= `verbose` (default: 0)'

@@ -12,6 +12,7 @@ __status__ = 'Development'
 
 import os
 import numpy as np
+from pyscfad.lib import numpy as jnp
 import pandas as pd
 from pyscf import gto, lo
 from typing import Dict, Tuple, List, Union, Any
@@ -139,15 +140,15 @@ def orbs(mol: gto.Mole, res: Dict[str, Any], unit: str, ndo: bool) -> pd.DataFra
         # molecular dimensions
         alpha, beta = dim(res[CompKeys.mo_occ])
         # mo occupations
-        mo_occ = np.append(res[CompKeys.mo_occ][0], res[CompKeys.mo_occ][1])
+        mo_occ = jnp.append(res[CompKeys.mo_occ][0], res[CompKeys.mo_occ][1])
         # orbital symmetries
-        orbsym = np.append(res[CompKeys.orbsym][0], res[CompKeys.orbsym][1])
+        orbsym = jnp.append(res[CompKeys.orbsym][0], res[CompKeys.orbsym][1])
         # index
         if ndo:
-            sort_idx = np.argsort(mo_occ)
-            mo_idx = np.array([[sort_idx[i], sort_idx[-(i+1)]] for i in range(sort_idx.size // 2)]).ravel()
+            sort_idx = jnp.argsort(mo_occ)
+            mo_idx = jnp.array([[sort_idx[i], sort_idx[-(i+1)]] for i in range(sort_idx.size // 2)]).ravel()
         else:
-            mo_idx = np.arange(alpha.size + beta.size)
+            mo_idx = jnp.arange(alpha.size + beta.size)
 
         # units
         unit = unit.lower()
@@ -165,14 +166,14 @@ def orbs(mol: gto.Mole, res: Dict[str, Any], unit: str, ndo: bool) -> pd.DataFra
 
         # property contributions
         if scalar_prop:
-            prop = {comp_key: np.append(res[comp_key][0], res[comp_key][1])[mo_idx] for comp_key in res.keys() if comp_key not in (CompKeys.struct, CompKeys.charge_atom)}
-            prop[CompKeys.struct] = np.sum(res[CompKeys.struct]) / mo_occ.size
+            prop = {comp_key: jnp.append(res[comp_key][0], res[comp_key][1])[mo_idx] for comp_key in res.keys() if comp_key not in (CompKeys.struct, CompKeys.charge_atom)}
+            prop[CompKeys.struct] = jnp.sum(res[CompKeys.struct]) / mo_occ.size
             prop[CompKeys.tot] = prop[CompKeys.el] + prop[CompKeys.struct]
         else:
-            prop = {CompKeys.el + axis: np.vstack((res[CompKeys.el][0], res[CompKeys.el][1]))[mo_idx[:, None], ax_idx].ravel() \
+            prop = {CompKeys.el + axis: jnp.vstack((res[CompKeys.el][0], res[CompKeys.el][1]))[mo_idx[:, None], ax_idx].ravel() \
                     for ax_idx, axis in enumerate((' (x)', ' (y)', ' (z)'))}
             for ax_idx, axis in enumerate((' (x)', ' (y)', ' (z)')):
-                prop[CompKeys.struct + axis] = np.sum(res[CompKeys.struct], axis=0)[ax_idx] / mo_occ.size
+                prop[CompKeys.struct + axis] = jnp.sum(res[CompKeys.struct], axis=0)[ax_idx] / mo_occ.size
                 prop[CompKeys.tot + axis] = prop[CompKeys.el + axis] + prop[CompKeys.struct + axis]
         # add mo occupations, orbital symmetries, and structural contributions to dict
         prop[CompKeys.mo_occ] = mo_occ[mo_idx]
