@@ -14,7 +14,7 @@ import sys
 import os
 import copy
 import numpy as np
-from pyscfad.lib import numpy as jnp
+from jax import numpy as jnp
 
 try:
     import opt_einsum as oe

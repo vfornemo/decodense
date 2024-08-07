@@ -12,7 +12,7 @@ __status__ = 'Development'
 
 import os
 import numpy as np
-from pyscfad.lib import numpy as jnp
+from jax import numpy as jnp
 import pandas as pd
 from pyscf import gto, lo
 from typing import Dict, Tuple, List, Union, Any

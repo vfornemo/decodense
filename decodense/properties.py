@@ -11,7 +11,7 @@ __email__ = 'janus@kemi.dtu.dk'
 __status__ = 'Development'
 
 import numpy as np
-from pyscfad.lib import numpy as jnp
+from jax import numpy as jnp
 from itertools import starmap
 from pyscfad import gto, scf, dft, df, lo, lib
 from pyscf import solvent

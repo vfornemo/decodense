@@ -2,7 +2,7 @@ import sys, os
 sys.path.append(os.path.join(os.path.dirname(__file__), '../..'))
 
 import jax
-from pyscfad.lib import numpy as jnp
+from jax import numpy as jnp
 from pyscfad import gto
 import decodense
 from decodense.ad.prop.dipole import dipole1, dipole2

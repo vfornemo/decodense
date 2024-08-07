@@ -10,7 +10,7 @@ __maintainer__ = 'Janus Juul Eriksen'
 __email__ = 'janus@kemi.dtu.dk'
 __status__ = 'Development'
 
-from pyscfad.lib import numpy as jnp
+from jax import numpy as jnp
 from pyscfad import gto
 from typing import List, Dict, Union, Any
 

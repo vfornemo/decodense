@@ -10,7 +10,7 @@ __maintainer__ = 'Janus Juul Eriksen'
 __email__ = 'janus@kemi.dtu.dk'
 __status__ = 'Development'
 
-from pyscfad.lib import numpy as jnp
+from jax import numpy as jnp
 from itertools import starmap
 from pyscfad import gto, scf, df, lo, lib, dft
 from pyscf.dft import libxc
@@ -233,23 +233,24 @@ def _e_nuc(mol: gto.Mole, mm_mol: Union[None, gto.Mole]) -> jnp.ndarray:
         """
         this function returns the nuclear repulsion energy
         """
-        # coordinates and charges of nuclei
-        coords = mol.atom_coords()
-        charges = mol.atom_charges()
-        # internuclear distances (with self-repulsion removed)
-        dist = gto.mole.distance_matrix(coords)
-        # dist = gto.inter_distance(mol)
-        # dist[jnp.diag_indices_from(dist)] = 1e200
-        e_nuc = contract('i,ij,j->i', charges, 1. / dist, charges) * .5
-        # possible interaction with mm sites
-        if mm_mol is not None:
-            mm_coords = mm_mol.atom_coords()
-            mm_charges = mm_mol.atom_charges()
-            for j in range(mol.natm):
-                q2, r2 = charges[j], coords[j]
-                r = lib.norm(r2 - mm_coords, axis=1)
-                e_nuc[j] += q2 * jnp.sum(mm_charges / r)
-        return e_nuc
+        # # coordinates and charges of nuclei
+        # coords = mol.atom_coords()
+        # charges = mol.atom_charges()
+        # # internuclear distances (with self-repulsion removed)
+        # # dist = gto.mole.distance_matrix(coords)
+        # dist = gto.mole.inter_distance(mol)
+        # # dist[jnp.diag_indices_from(dist)] = 1e200
+        # e_nuc = contract('i,ij,j->i', charges, 1. / dist, charges) * .5
+        # # possible interaction with mm sites
+        # if mm_mol is not None:
+        #     mm_coords = mm_mol.atom_coords()
+        #     mm_charges = mm_mol.atom_charges()
+        #     for j in range(mol.natm):
+        #         q2, r2 = charges[j], coords[j]
+        #         r = lib.norm(r2 - mm_coords, axis=1)
+        #         e_nuc[j] += q2 * jnp.sum(mm_charges / r)
+        # return e_nuc
+        return gto.mole.classical_coulomb_energy(mol)
 
 
 def _dip_nuc(mol: gto.Mole, atom_charges: jnp.ndarray, gauge_origin: jnp.ndarray) -> jnp.ndarray:
