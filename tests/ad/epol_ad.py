@@ -8,6 +8,9 @@ from jax import numpy as jnp
 from pyscfad import gto
 import decodense
 from decodense.ad.prop.dipole import dipole1, dipole2, energy
+from pyscfad import config
+
+config.update('pyscfad_scf_implicit_diff', True)
 
 jnp.set_printoptions(threshold=100000)
 jnp.set_printoptions(linewidth=jnp.inf)
