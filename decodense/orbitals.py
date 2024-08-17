@@ -16,9 +16,9 @@ from pyscfad import gto, scf, dft, lo, lib
 from pyscfad.lo import pipek, iao, orth, boys
 from typing import List, Tuple, Dict, Union, Any
 
-from .tools import dim, make_rdm1, contract
+from .tools import dim, make_rdm1, contract, mf_info
 
-LOC_CONV = 1.e-10
+LOC_TOL = 1.e-10
 
 
 def loc_orbs(mol: gto.Mole, mf: Union[scf.hf.SCF, dft.rks.KohnShamDFT], \
@@ -28,6 +28,9 @@ def loc_orbs(mol: gto.Mole, mf: Union[scf.hf.SCF, dft.rks.KohnShamDFT], \
         """
         this function returns a set of localized MOs of a specific variant
         """
+
+        orbocc, mo_occ = mf_info(mf)
+
         # rhf reference
         if mo_occ[0].size == mo_occ[1].size:
             rhf = jnp.allclose(mo_coeff_in[0], mo_coeff_in[1]) and jnp.allclose(mo_occ[0], mo_occ[1])
@@ -65,24 +68,41 @@ def loc_orbs(mol: gto.Mole, mf: Union[scf.hf.SCF, dft.rks.KohnShamDFT], \
             if mo_basis == 'fb':
                 # foster-boys MOs
                 loc = lo.Boys(mol)
-                loc.conv_tol = LOC_CONV
+                loc.conv_tol = LOC_TOL
                 if 0 < verbose: loc.verbose = 4
                 mo_coeff_out[i][:, spin_mo] = loc.kernel(mo_coeff_init)
-            else:
+
+            elif mo_basis == 'can':
+                return orbocc, mo_occ
+
+            elif mo_basis == 'pm':
                 # pipek-mezey procedure with given pop_method
-                loc = lo.PM(mol, mf=mf)
-                loc.conv_tol = LOC_CONV
-                loc.pop_method = pop_method
-                loc.exponent = loc_exp
-                if 0 < verbose: loc.verbose = 4
-                mo_coeff_out[i][:, spin_mo] = loc.kernel(mo_coeff_init)
+                print("pipek-mezey procedure with given pop_method")
+
+                orbloc = pipek.pm(mol, orbocc[i], conv_tol=LOC_TOL,
+                                pop_method=pop_method, exponent=loc_exp, init_guess="atomic")
+                   
+                new_array = mo_coeff_out[i].at[..., spin_mo].set(orbloc)
+                mo_coeff_out = mo_coeff_out[:i] + (new_array,) + mo_coeff_out[i+1:]
+                
+                # loc = lo.PM(mol, mf=mf)
+                # loc.conv_tol = LOC_CONV
+                # loc.pop_method = pop_method
+                # loc.exponent = loc_exp
+                # if 0 < verbose: loc.verbose = 4
+                # mo_coeff_out[i][:, spin_mo] = loc.kernel(mo_coeff_init)
+            
+            else:
+                raise NotImplementedError("mo_basis {} not implemented".format(mo_basis))
 
             # closed-shell reference
             if rhf:
-                mo_coeff_out[i+1][:, spin_mo] = mo_coeff_out[i][:, spin_mo]
+                # mo_coeff_out[i+1][:, spin_mo] = mo_coeff_out[i][:, spin_mo]
+                new_array = mo_coeff_out[i+1].at[..., spin_mo].set(mo_coeff_out[i][:, spin_mo])
+                mo_coeff_out = mo_coeff_out[:i+1] + (new_array,) + mo_coeff_out[i+2:]
                 break
 
-        return mo_coeff_out
+        return mo_coeff_out, mo_occ
 
 
 def assign_rdm1s(mol: gto.Mole, mf: Union[scf.hf.SCF, dft.rks.KohnShamDFT], \

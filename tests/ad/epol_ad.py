@@ -7,7 +7,7 @@ from jax import jacrev
 from jax import numpy as jnp
 from pyscfad import gto
 import decodense
-from decodense.ad.prop.dipole import dipole1, dipole2, energy
+from decodense.ad.prop.dipole import energy
 from pyscfad import config
 
 config.update('pyscfad_scf_implicit_diff', True)
@@ -64,7 +64,7 @@ for mol_name, geom, pol_ref in zip(MOLS, GEOMS, POL_REFS):
             mol.build(trace_coords=False, trace_exp=False, trace_ctr_coeff=False)
             # atomic polarizability
             decomp = decodense.DecompCls(part='atoms', mo_basis=mo, prop='energy', verbose=0, pop_method=pop_method)
-            pol = jnp.sum(-jacrev(jacrev(energy))(E0, decomp, mol), axis=0)
+            pol = jnp.sum(-jacrev(jacrev(energy))(E0, decomp, mol, sweep=False), axis=0)
             # assert differences
             print(f'{mol_name:} / {mo:} / {pop_method:}:')
             print('total polarizabilities:\n', pol - pol_ref)

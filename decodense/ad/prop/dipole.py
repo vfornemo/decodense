@@ -93,7 +93,7 @@ def energy(E, decomp, mol, sweep=False):
                         decomp.mo_init, decomp.loc_exp, decomp.verbose, sweep)
     
     ad = True
-    e_part = decodense.main(mol = mol, decomp = decomp, mf = mf, mo_coeff = mo_coeff, mo_occ = mo_occ, AD = ad)
+    e_part = decodense.main(mol = mol, decomp = decomp, mf = mf, mo_coeff = mo_coeff, mo_occ = mo_occ, AD = ad, ext = field)
     # e_part = decodense.main(mol = mol, decomp = decomp, mf = mf, AD = ad)
 
     # dimension of the electronic part needs to be considered

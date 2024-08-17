@@ -14,7 +14,6 @@ from pyscfad import config
 
 config.update('pyscfad_scf_implicit_diff', True)
 
-
 # static external electric field
 E0 = jnp.array([0.] * 3)
 # localization threshold

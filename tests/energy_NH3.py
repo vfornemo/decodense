@@ -1,17 +1,20 @@
+# test script for standard decodense
+
 import sys, os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
-from pyscf import gto, scf
+from pyscfad import gto, scf
 import decodense
 import numpy as np
 import pandas as pd
+from decodense.orbitals import loc_orbs
+from decodense.tools import mf_info
 
 # print this script
 print(open(__file__).read())
 print("-------------- Log starts here --------------")
 
-# MO_BASIS = ['can', 'pm']
-MO_BASIS = ['pm']
+MO_BASIS = ['can', 'pm']
 POP_METHOD = ['mulliken', 'iao']
 
 np.set_printoptions(threshold=100000)
@@ -30,7 +33,7 @@ H 1 1.008000 2 109.47
 H 1 1.008000 2 109.47 3 120
 '''
 
-mol.basis = 'cc-pvdz'
+mol.basis = 'aug-pcseg-1'
 mol.build()
 
 
@@ -51,7 +54,17 @@ print('\n###### NH3 ######\n')
 for mo_basis in MO_BASIS:
     for pop_method in POP_METHOD:
         decomp = decodense.DecompCls(part='atoms', mo_basis=mo_basis, prop='energy', verbose=0, pop_method=pop_method)
-        res = decodense.main(mol, decomp, mf)
+        
+        # get orbitals and mo occupation
+        mo_coeff, mo_occ = mf_info(mf)
+        if decomp.mo_basis != 'can':
+            mo_coeff, mo_occ = loc_orbs(mol, mf, mo_coeff, mo_occ, \
+                                decomp.mo_basis, decomp.pop_method, decomp.mo_init, decomp.loc_exp, \
+                                decomp.ndo, decomp.verbose)
+
+
+
+        res = decodense.main(mol, decomp, mf, mo_coeff=mo_coeff, mo_occ=mo_occ, AD=False)
         print("res", res)
         e_tot = np.sum(res[decodense.decomp.CompKeys.tot])
         print(f'{mo_basis}/{pop_method} Energy', e_tot)

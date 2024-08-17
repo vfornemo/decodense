@@ -149,7 +149,8 @@ def prop_tot(mol: gto.Mole, mf: Union[scf.hf.SCF, dft.rks.KohnShamDFT], \
                         # orbital-specific rdm1
                         rdm1_orb = make_rdm1(orb, mo_occ[i][j])
                         # weighted contribution to rdm1_atom
-                        rdm1_atom[i] += rdm1_orb * weights[i][m][atom_idx] / jnp.sum(weights[i][m])
+                        # assuming that weights are normalized
+                        rdm1_atom = rdm1_atom.at[i].add(rdm1_orb * weights[i][m][atom_idx])
                     # coulumb & exchange energy associated with given atom
                     if prop_type == 'energy':
                         res[CompKeys.coul] += _trace(jnp.sum(vj, axis=0), rdm1_atom[i], scaling = .5)
@@ -273,7 +274,8 @@ def prop_tot(mol: gto.Mole, mf: Union[scf.hf.SCF, dft.rks.KohnShamDFT], \
             # collect results
             for k, r in enumerate(res):
                 for key, val in r.items():
-                    prop[key][k] = val
+                    prop[key] = prop[key].at[k].set(val)
+
             if ndo:
                 prop[CompKeys.struct] = jnp.zeros_like(prop_nuc_rep)
             else:
@@ -305,23 +307,17 @@ def _e_nuc(mol: gto.Mole, mm_mol: Union[None, gto.Mole]) -> jnp.ndarray:
         """
         this function returns the nuclear repulsion energy
         """
-        # coordinates and charges of nuclei
-        coords = mol.atom_coords()
-        charges = mol.atom_charges()
-        # internuclear distances (with self-repulsion removed)
-        dist = gto.inter_distance(mol)
-        dist[jnp.diag_indices_from(dist)] = 1e200
-        e_nuc = contract('i,ij,j->i', charges, 1. / dist, charges) * .5
-        # possible interaction with mm sites
+        e_nuc = gto.mole.classical_coulomb_energy(mol)
         if mm_mol is not None:
             mm_coords = mm_mol.atom_coords()
             mm_charges = mm_mol.atom_charges()
+            coords = mol.atom_coords()
+            charges = mol.atom_charges()
             for j in range(mol.natm):
                 q2, r2 = charges[j], coords[j]
                 r = lib.norm(r2 - mm_coords, axis=1)
                 e_nuc[j] += q2 * jnp.sum(mm_charges / r)
         return e_nuc
-
 
 def _dip_nuc(mol: gto.Mole, atom_charges: jnp.ndarray, gauge_origin: jnp.ndarray) -> jnp.ndarray:
         """
@@ -348,7 +344,7 @@ def _h_core(mol: gto.Mole, mm_mol: Union[None, gto.Mole]) -> Tuple[jnp.ndarray, 
         sub_nuc = jnp.zeros([mol.natm, mol.nao_nr(), mol.nao_nr()], dtype=jnp.float64)
         for k in range(mol.natm):
             with mol.with_rinv_origin(coords[k]):
-                sub_nuc[k] = -mol.intor('int1e_rinv') * charges[k]
+                sub_nuc = sub_nuc.at[k].set(-mol.intor('int1e_rinv') * charges[k])
         # total nuclear potential
         nuc = jnp.sum(sub_nuc, axis=0)
         # possible mm potential

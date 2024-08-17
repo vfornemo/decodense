@@ -29,7 +29,8 @@ def main(mol: gto.Mole, decomp: DecompCls, \
          mo_coeff: jnp.ndarray = None, \
          mo_occ: jnp.ndarray = None,
          rdm1_orb: jnp.ndarray = None, \
-         rdm1_eff: jnp.ndarray = None, AD: bool = False) -> pd.DataFrame:
+         rdm1_eff: jnp.ndarray = None, AD: bool = False, \
+         ext: jnp.ndarray = None ) -> pd.DataFrame:
         """
         main decodense program
         """
@@ -45,7 +46,7 @@ def main(mol: gto.Mole, decomp: DecompCls, \
         if AD == True:
             decomp.res = prop_tot_ad(mol, mf, mo_coeff, mo_occ, rdm1_eff, \
                               decomp.pop_method, decomp.prop, decomp.part, \
-                              decomp.ndo, decomp.gauge_origin, weights)
+                              decomp.ndo, decomp.gauge_origin, weights, ext)
         else:
             decomp.res = prop_tot(mol, mf, mo_coeff, mo_occ, rdm1_eff, \
                                   decomp.pop_method, decomp.prop, decomp.part, \
