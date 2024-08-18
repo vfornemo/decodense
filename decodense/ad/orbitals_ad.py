@@ -55,7 +55,8 @@ def loc_orbs(mol: gto.Mole, mf: Union[scf.hf.SCF, dft.rks.KohnShamDFT], \
             # localize orbitals
             if mo_basis == 'fb':
                 # foster-boys MOs
-                new_array = mo_coeff_out[i].at[..., spin_mo].set(lo.boys.boys(mol, orbocc, conv_tol = LOC_TOL))
+                orbloc = lo.boys.boys(mol, orbocc[i], conv_tol=LOC_TOL)
+                new_array = mo_coeff_out[i].at[..., spin_mo].set(orbloc)
                 mo_coeff_out = mo_coeff_out[:i] + (new_array,) + mo_coeff_out[i+1:]
                 
             elif mo_basis == 'can':
