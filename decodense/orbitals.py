@@ -84,19 +84,11 @@ def loc_orbs(mol: gto.Mole, mf: Union[scf.hf.SCF, dft.rks.KohnShamDFT], \
                 new_array = mo_coeff_out[i].at[..., spin_mo].set(orbloc)
                 mo_coeff_out = mo_coeff_out[:i] + (new_array,) + mo_coeff_out[i+1:]
                 
-                # loc = lo.PM(mol, mf=mf)
-                # loc.conv_tol = LOC_CONV
-                # loc.pop_method = pop_method
-                # loc.exponent = loc_exp
-                # if 0 < verbose: loc.verbose = 4
-                # mo_coeff_out[i][:, spin_mo] = loc.kernel(mo_coeff_init)
-            
             else:
                 raise NotImplementedError("mo_basis {} not implemented".format(mo_basis))
 
             # closed-shell reference
             if rhf:
-                # mo_coeff_out[i+1][:, spin_mo] = mo_coeff_out[i][:, spin_mo]
                 new_array = mo_coeff_out[i+1].at[..., spin_mo].set(mo_coeff_out[i][:, spin_mo])
                 mo_coeff_out = mo_coeff_out[:i+1] + (new_array,) + mo_coeff_out[i+2:]
                 break
@@ -110,20 +102,12 @@ def assign_rdm1s(mol: gto.Mole, mf: Union[scf.hf.SCF, dft.rks.KohnShamDFT], \
         """
         this function returns a list of population weights of each spin-orbital on the individual atoms
         """
-        # # declare nested kernel function in global scope
-        # global get_weights
-
-        # # dft logical
-        # dft_calc = isinstance(mf, dft.rks.KohnShamDFT)
 
         # rhf reference
         if mo_occ[0].size == mo_occ[1].size:
             rhf = jnp.allclose(mo_coeff[0], mo_coeff[1]) and jnp.allclose(mo_occ[0], mo_occ[1])
         else:
             rhf = False
-
-        # # overlap matrix
-        # s = mol.intor_symmetric('int1e_ovlp')
 
         # molecular dimensions
         alpha, beta = dim(mo_occ)
@@ -140,74 +124,12 @@ def assign_rdm1s(mol: gto.Mole, mf: Union[scf.hf.SCF, dft.rks.KohnShamDFT], \
         else:
             pmol = mol
 
-        # # number of atoms
-        # natm = pmol.natm
-
-        # # AO labels
-        # ao_labels = pmol.ao_labels(fmt=None)
-
-        # # overlap matrix
-        # if pop_method == 'mulliken':
-        #     ovlp = s
-        # else:
-        #     ovlp = jnp.eye(pmol.nao_nr())
-
-        # def get_weights(orb_idx: int):
-        #     """
-        #     this function computes the full set of population weights
-        #     """
-        #     # get orbital
-        #     orb = mo[:, orb_idx].reshape(mo.shape[0], 1)
-        #     if pop_method == 'becke':
-        #         # population weights of orb
-        #         return _population_becke(natm, charge_matrix, orb)
-        #     else:
-        #         # orbital-specific rdm1
-        #         rdm1_orb = make_rdm1(orb, mocc[orb_idx])
-        #         # population weights of rdm1_orb
-        #         return _population_mul(natm, ao_labels, ovlp, rdm1_orb)
-
         # init population weights array
         weights = [jnp.zeros([n_spin, pmol.natm], dtype=jnp.float64), jnp.zeros([n_spin, pmol.natm], dtype=jnp.float64)]
 
         # loop over spin
         for i, spin_mo in enumerate((alpha, beta)):
 
-            # # get mo coefficients and occupation
-            # if pop_method == 'mulliken':
-            #     mo = mo_coeff[i][:, spin_mo]
-            # elif pop_method == 'lowdin':
-            #     mo = contract('ki,kl,lj->ij', lo.orth.orth_ao(pmol, method='lowdin', s=s), s, mo_coeff[i][:, spin_mo])
-            # elif pop_method == 'meta_lowdin':
-            #     mo = contract('ki,kl,lj->ij', lo.orth.orth_ao(pmol, method='meta_lowdin', s=s), s, mo_coeff[i][:, spin_mo])
-            # elif pop_method == 'iao':
-            #     iao = lo.iao.iao(mol, mo_coeff[i][:, spin_mo])
-            #     iao = lo.orth.vec_lowdin(iao, s)
-            #     # iao = lo.vec_lowdin(iao, s)
-            #     mo = contract('ki,kl,lj->ij', iao, s, mo_coeff[i][:, spin_mo])
-            # elif pop_method == 'becke':
-            #     if getattr(pmol, 'pbc_intor', None):
-            #         raise NotImplementedError('PM becke scheme for PBC systems')
-            #     if dft_calc:
-            #         grid_coords, grid_weights = mf.grids.get_partition(mol, concat=False)
-            #         ni = mf._numint
-            #     else:
-            #         mf_becke = mol.RKS()
-            #         grid_coords, grid_weights = mf_becke.grids.get_partition(mol, concat=False)
-            #         ni = mf_becke._numint
-            #     charge_matrix = jnp.zeros([natm, pmol.nao_nr(), pmol.nao_nr()], dtype=jnp.float64)
-            #     for j in range(natm):
-            #         ao = ni.eval_ao(mol, grid_coords[j], deriv=0)
-            #         aow = jnp.einsum('pi,p->pi', ao, grid_weights[j])
-            #         charge_matrix[j] = contract('ki,kj->ij', aow, ao)
-            #     mo = mo_coeff[i][:, spin_mo]
-            # mocc = mo_occ[i][spin_mo]
-
-            # domain
-            # domain = jnp.arange(spin_mo.size)
-            # execute kernel
-            # weights[i] = list(map(get_weights, domain)) # type: ignore
-            
             pops = pipek.atomic_pops(mol, mo_coeff[i], method = pop_method)
             weights[i] = pops.diagonal(axis1=1, axis2=2).transpose()
         
@@ -259,3 +181,16 @@ def _population_becke(natm: int, charge_matrix: jnp.ndarray, orb: jnp.ndarray) -
             populations[i] = contract('ki,kl,lj->ij', orb, charge_matrix[i], orb)
 
         return populations
+
+# orbital generation wrapper
+def gen_orbs(mol, mf, decomp):
+        """
+        this function generates orbitals
+        """
+        # get orbitals and mo occupation
+
+        mo_coeff, mo_occ = mf_info(mf)
+        mo_coeff, mo_occ = loc_orbs(mol, mf, mo_coeff, mo_occ, \
+                            decomp.mo_basis, decomp.pop_method, decomp.mo_init, decomp.loc_exp, \
+                            decomp.ndo, decomp.verbose)
+        return mo_coeff, mo_occ

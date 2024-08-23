@@ -99,8 +99,6 @@ def mf_info(mf: Union[scf.hf.SCF, dft.rks.KohnShamDFT]) -> Tuple[Tuple[jnp.ndarr
         """
         retrieve mf information (mo coefficients & occupations)
         """
-        # print("mf.mo_coeff", mf.mo_coeff)
-        
         # dimensions
         alpha, beta = dim(mf.mo_occ)
         # mo occupations

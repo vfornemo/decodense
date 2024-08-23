@@ -163,7 +163,7 @@ for mol_name, geom, pol_ref in zip(MOLS, GEOMS, POL_REFS):
             mol.atom = geom
             mol.basis = BASIS
             mol.verbose = 4
-            mol.build(trace_coords=False, trace_exp=False, trace_ctr_coeff=False)
+            mol.build(trace_coords=False, trace_exp=False, trace_ctr_coeff=True)
             # atomic polarizability
             pol = jnp.sum(-jacrev(jacrev(energy))(E0, mol, mo, pop_method, sweep=True), axis=0)
             # assert differences

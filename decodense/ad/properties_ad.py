@@ -62,7 +62,6 @@ def prop_tot_ad(mol: gto.Mole, mf: Union[scf.hf.SCF, dft.rks.KohnShamDFT], \
         # effective atomic charges
         if part in ['atoms', 'eda']:
             charge_atom = -jnp.sum(weights[0] + weights[1], axis=0) + pmol.atom_charges()
-            # print("charge_atom", charge_atom)
         else:
             charge_atom = 0.
 
@@ -150,7 +149,6 @@ def prop_tot_ad(mol: gto.Mole, mf: Union[scf.hf.SCF, dft.rks.KohnShamDFT], \
                         # weighted contribution to rdm1_atom
                         # assuming that weights are normalized
                         rdm1_atom = rdm1_atom.at[i].add(rdm1_orb * weights[i][m][atom_idx])
-                        # rdm1_atom = rdm1_atom.at[i].add(rdm1_orb * weights[i][m][atom_idx] / jnp.sum(weights[i][m]))
                     # coulumb & exchange energy associated with given atom
                     if prop_type == 'energy':
                         res[CompKeys.coul] += _trace(jnp.sum(vj, axis=0), rdm1_atom[i], scaling = .5)
@@ -217,9 +215,7 @@ def prop_tot_ad(mol: gto.Mole, mf: Union[scf.hf.SCF, dft.rks.KohnShamDFT], \
             # collect results
             for k, r in enumerate(res):
                 for key, val in r.items():
-                    # prop[key][domain[k, 0]][domain[k, 1]] = val
                     prop[key][domain[k, 0]].at[domain[k, 1]].set(val)
-                    # prop[key] = prop[key].at[k].set(val)
                     
             if ndo:
                 prop[CompKeys.struct] = jnp.zeros_like(prop_nuc_rep)
@@ -270,7 +266,6 @@ def _h_core(mf: Union[scf.hf.SCF, dft.rks.KohnShamDFT], mol: gto.Mole, mm_mol: U
         natm = mol.natm
         nao = mol.nao
         sub_nuc = jnp.zeros((natm, nao, nao), dtype=float)
-        # sub_nuc = jnp.zeros([mol.natm, mol.nao_nr(), mol.nao_nr()], dtype=jnp.float64)
         for k in range(mol.natm):
             with mol.with_rinv_at_nucleus(k):
                 sub_nuc = sub_nuc.at[k].set(-mol.intor('int1e_rinv') * charges[k])
@@ -284,9 +279,6 @@ def _h_core(mf: Union[scf.hf.SCF, dft.rks.KohnShamDFT], mol: gto.Mole, mm_mol: U
         else:
             mm_pot = None
         
-        # Check additional terms in hcore
-        # ext = mf.get_hcore() - kin - nuc
-            
         return kin, nuc, sub_nuc, mm_pot
 
 
@@ -479,5 +471,4 @@ def _e_xc(eps_xc: jnp.ndarray, grid_weights: jnp.ndarray, rho: jnp.ndarray) -> f
         this function returns a contribution to the exchange-correlation energy from given rmd1 (via rho)
         """
         return contract('i,i,i->', eps_xc, rho if rho.ndim == 1 else rho[0], grid_weights)
-
 

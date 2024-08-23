@@ -10,7 +10,6 @@ LOC_TOL = 1.e-10
 
 
 def loc_orbs(mol: gto.Mole, mf: Union[scf.hf.SCF, dft.rks.KohnShamDFT], \
-            #  mo_coeff_in: jnp.ndarray, mo_occ: jnp.ndarray, \
              mo_basis: str, pop_method: str, mo_init: str, loc_exp: int, \
              verbose: int, sweep: bool) -> Tuple[jnp.ndarray, jnp.ndarray]:
         """
@@ -18,8 +17,6 @@ def loc_orbs(mol: gto.Mole, mf: Union[scf.hf.SCF, dft.rks.KohnShamDFT], \
         """
         
         # localized pm orbitals or ibos
-        # mo_occ = mf.mo_occ[mf.mo_occ>0]
-        # orbocc = mf.mo_coeff[:, mf.mo_occ>0]
         
         orbocc, mo_occ = mf_info(mf)
         
@@ -41,17 +38,6 @@ def loc_orbs(mol: gto.Mole, mf: Union[scf.hf.SCF, dft.rks.KohnShamDFT], \
         # loop over spins
         for i, spin_mo in enumerate((alpha, beta)):
 
-            # # construct start guess
-            # if mo_init == 'can':
-            #     # canonical MOs as start guess
-            #     mo_coeff_init = mo_coeff_in[i][:, spin_mo]
-            # elif mo_init == 'cholesky':
-            #     # start guess via non-iterative cholesky factorization
-            #     mo_coeff_init = lo.cholesky.cholesky_mos(mo_coeff_in[i][:, spin_mo])
-            # else:
-            #     # IBOs as start guess
-            #     mo_coeff_init = lo.ibo.ibo(mol, mo_coeff_in[i][:, spin_mo], exponent=loc_exp, verbose=0)
-
             # localize orbitals
             if mo_basis == 'fb':
                 # foster-boys MOs
@@ -67,9 +53,8 @@ def loc_orbs(mol: gto.Mole, mf: Union[scf.hf.SCF, dft.rks.KohnShamDFT], \
                 
                 if sweep:
                     u0 = pm_jacobi_sweep(mol, orbocc[i], mf.get_ovlp(), pop_method, loc_exp)
-                    orbloc = pipek.pm(mol, orbocc, conv_tol=LOC_TOL,
+                    orbloc = pipek.pm(mol, orbocc[i], conv_tol=LOC_TOL,
                                       pop_method=pop_method, exponent=loc_exp, init_guess=u0)
-                
                 else: 
                     orbloc = pipek.pm(mol, orbocc[i], conv_tol=LOC_TOL,
                                     pop_method=pop_method, exponent=loc_exp, init_guess="atomic")
@@ -82,7 +67,6 @@ def loc_orbs(mol: gto.Mole, mf: Union[scf.hf.SCF, dft.rks.KohnShamDFT], \
 
             # closed-shell reference
             if rhf:
-                # mo_coeff_out[i+1][:, spin_mo] = mo_coeff_out[i][:, spin_mo]
                 new_array = mo_coeff_out[i+1].at[..., spin_mo].set(mo_coeff_out[i][:, spin_mo])
                 mo_coeff_out = mo_coeff_out[:i+1] + (new_array,) + mo_coeff_out[i+2:]
                 break
@@ -105,7 +89,6 @@ def mf_info(mf: Union[scf.hf.SCF, dft.rks.KohnShamDFT]) -> Tuple[Tuple[jnp.ndarr
     """
     retrieve mf information (mo coefficients & occupations)
     """
-    # print("mf.mo_coeff", mf.mo_coeff)
     
     # dimensions
     alpha, beta = dim(mf.mo_occ)
@@ -118,18 +101,6 @@ def mf_info(mf: Union[scf.hf.SCF, dft.rks.KohnShamDFT]) -> Tuple[Tuple[jnp.ndarr
         mo_coeff = (mf.mo_coeff[0][:, alpha], mf.mo_coeff[1][:, beta])
         
     return jnp.asarray(mo_coeff), mo_occ
-
-
-# def pm_jacobi_sweep(mol, mo_coeff, mo_occ, s1e, pop_method, conv_tol=LOC_TOL):
-#     orbocc = np.asarray(stop_grad(mo_coeff[:, mo_occ>0]))
-#     mlo = pipek.PM(stop_grad(mol), orbocc)
-#     mlo.pop_method = pop_method
-#     mlo.conv_tol = conv_tol
-#     _ = mlo.kernel()
-#     mlo = pipek.jacobi_sweep(mlo)
-#     orbloc = mlo.mo_coeff
-#     u0 = reduce(np.dot, (orbocc.T, stop_grad(s1e), orbloc))
-#     return jnp.dot(mo_coeff[:, mo_occ>0], u0)
 
 def pm_jacobi_sweep(mol, orbocc, s1e, pop_method, exponent=2, conv_tol=LOC_TOL):
     orbocc = np.asarray(stop_grad(orbocc))
